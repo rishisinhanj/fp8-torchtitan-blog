@@ -76,7 +76,7 @@ With correctness established, we turned to performance. The FP8 quantization pip
 |---|---|
 | ![V2 upstream](images/fp8_upstream_perfetto.png) | ![V4 fused](images/fp8_optimized_perfetto.png) |
 
-*Figure 5: Perfetto trace comparison (8×MI325X, DeepSeek-V3 671B). Top: upstream FP8 (V2) showing the 5-kernel eager chain repeated across experts. Bottom: fused FP8 (V4) showing a single `triton_fp8_colwise_3d_scale_and_cast` kernel replacing the chain.*
+*Figure 5: Perfetto trace comparison (8×MI325X, DeepSeek-V3 671B). Top: upstream FP8 (V2) showing the 5-kernel eager chain repeated across experts. Bottom: fused FP8 (V4) showing a single `triton_fp8_colwise_3d_scale_and_cast` kernel replacing the chain. Performance in forward goes from ~19 seconds to ~7 seconds*
 
 ![Figure 6: Per-category GPU Time Breakdown](images/fig6-gpu-breakdown.png)
 
