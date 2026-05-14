@@ -1,6 +1,6 @@
 # FP8 Training on AMD GPUs with TorchTitan and TorchAO: From First Commit to Production Scale
 
-**Author:** : Rishi Sinha (AMD)
+**Author:**  Rishi Sinha (AMD)
 
 ---
 
