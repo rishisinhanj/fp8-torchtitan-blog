@@ -24,7 +24,7 @@
 </head>
 <body>
 <div class="figure-container">
-  <svg id="chart" width="900" height="720" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg id="chart" width="900" height="580" xmlns="http://www.w3.org/2000/svg"></svg>
 </div>
 <script>
 (function() {
@@ -57,7 +57,7 @@
   }
 
   // Background
-  svg.appendChild(el('rect', { x:0, y:0, width:900, height:720, fill:'#ffffff' }));
+  svg.appendChild(el('rect', { x:0, y:0, width:900, height:580, fill:'#ffffff' }));
 
   // Title
   svg.appendChild(el('text', { x:450, y:32, 'text-anchor':'middle', 'font-size':'18', 'font-weight':'700', fill:'#1a1a1a' },
@@ -211,24 +211,6 @@
       legendItems[i].label));
   }
 
-  // Caption
-  const captionLines = [
-    'Figure 5: Per-category GPU time breakdown across three configurations on 8\u00D7MI325X with DeepSeek-V3',
-    '671B (4-layer MoE). The FP8 upstream configuration (V2) adds 127 ms/step \u2014 92% of which lands in',
-    '"Others" (generic quantization kernels). The fused Triton kernel (V4) eliminates most of this',
-    'overhead, recovering 89% of the BF16\u2192FP8 gap.'
-  ];
-
-  // Caption background
-  svg.appendChild(el('rect', { x: 30, y: 580, width: 840, height: 80, fill: '#f8f8f8', rx: 6, stroke: '#e0e0e0', 'stroke-width': '1' }));
-
-  for (let i = 0; i < captionLines.length; i++) {
-    svg.appendChild(el('text', {
-      x: 450, y: 598 + i * 17,
-      'text-anchor': 'middle', 'font-size': '12', 'font-weight': i === 0 ? '600' : '400',
-      fill: '#444', 'font-style': 'normal'
-    }, captionLines[i]));
-  }
 
   // Left axis line
   svg.appendChild(el('line', { x1: chartLeft, y1: chartTop, x2: chartLeft, y2: chartBottom,

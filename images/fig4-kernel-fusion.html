@@ -205,9 +205,6 @@ body {
 
 </svg>
 
-<p class="caption">
-  <strong>Figure 4:</strong> Backward-pass FP8 quantization before and after optimization. PR <a href="https://github.com/pytorch/ao/pull/3972">#3972</a> eliminates the redundant <code>.t().contiguous().t()</code> transpose copy, and PR <a href="https://github.com/pytorch/ao/pull/4069">#4069</a> fuses the three-step scale-and-cast chain into a single two-pass Triton kernel that reuses L2 cache between passes. A companion dual-kernel fuses quantization of both grad_output and input activation into one launch. Together these delivered a 15% throughput improvement on 8×MI300X.
-</p>
 </div>
 </body>
 </html>
