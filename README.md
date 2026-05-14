@@ -58,9 +58,10 @@ The PyTorch team built the MoE FP8 training infrastructure in TorchTitan ([#2774
 
 With correctness established, we turned to performance. The FP8 quantization pipeline in torchao converts tensors to FP8 through a multi-step chain:
 
-1. Compute per-column absolute value max (absmax), upcast to float32,
-2. Multiply by the scale factor,
-3. Then clamp and cast to FP8.
+1. Compute per-row/column absolute max (absmax)
+2. Derive the scale factor and apply it
+3. Clamp and cast to FP8
+
 
 Each step is a separate kernel launch, and materializes an intermediate tensor to High Bandwidth Memory (HBM) between steps. For MoE models with dozens of expert weight tensors per layer, these extra round-trips dominate the FP8 overhead. We targeted optimization from multiple bottlenecks:
 
