@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FP8 Throughput on 8×MI300X — Llama3-8B</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    padding: 20px;
+    background: #fff;
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .figure-container {
+    width: 900px;
+  }
+  svg text {
+    font-family: 'Inter', sans-serif;
+  }
+</style>
+</head>
+<body>
+<div class="figure-container">
+  <svg id="chart" width="900" height="520" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+<script>
+(function() {
+  const svg = document.getElementById('chart');
+  const NS = 'http://www.w3.org/2000/svg';
+
+  // Data — sorted ascending by value for visual progression
+  const bars = [
+    { label: 'BF16\nBaseline',                         value: 5377, speedup: null,     color: '#94a3b8' },
+    { label: 'Rowwise FP8\n(bf16 all-gather)',          value: 5891, speedup: '+9.6%',  color: '#60a5fa' },
+    { label: 'Rowwise FP8 + GW\nhigh-precision',        value: 6100, speedup: '+13.4%', color: '#3b82f6' },
+    { label: 'Tensorwise FP8\n(float8 all-gather)',     value: 6166, speedup: '+14.7%', color: '#1d4ed8' }
+  ];
+
+  // Layout
+  const chartLeft = 100, chartRight = 860, chartTop = 100, chartBottom = 390;
+  const chartWidth = chartRight - chartLeft;
+  const chartHeight = chartBottom - chartTop;
+  const yMax = 7000;
+  const yScale = chartHeight / yMax;
+  const barCount = bars.length;
+  const groupWidth = chartWidth / barCount;
+  const barWidth = groupWidth * 0.55;
+  const barGap = (groupWidth - barWidth) / 2;
+
+  function el(tag, attrs, textContent) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+    if (textContent !== undefined) e.textContent = textContent;
+    return e;
+  }
+
+  // Background
+  svg.appendChild(el('rect', { x: 0, y: 0, width: 900, height: 520, fill: '#ffffff' }));
+
+  // Title
+  svg.appendChild(el('text', {
+    x: 450, y: 32, 'text-anchor': 'middle',
+    'font-size': '18', 'font-weight': '700', fill: '#1a1a1a'
+  }, 'FP8 Training Throughput on 8×MI300X'));
+
+  // Subtitle
+  svg.appendChild(el('text', {
+    x: 450, y: 56, 'text-anchor': 'middle',
+    'font-size': '13', 'font-weight': '500', fill: '#555'
+  }, 'Llama3-8B · batch=1 · seq_len=8192 · 100 steps · torch.compile · FSDP2 · per-op selective AC'));
+
+  // Source
+  svg.appendChild(el('text', {
+    x: 450, y: 76, 'text-anchor': 'middle',
+    'font-size': '12', 'font-weight': '500', fill: '#888'
+  }, 'Source: torchao PR #2736'));
+
+  // Y-axis gridlines and labels
+  const yTicks = [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000];
+  for (const tick of yTicks) {
+    const y = chartBottom - tick * yScale;
+    svg.appendChild(el('line', {
+      x1: chartLeft, y1: y, x2: chartRight, y2: y,
+      stroke: tick === 0 ? '#cbd5e1' : '#f1f5f9', 'stroke-width': tick === 0 ? '1.5' : '1'
+    }));
+    svg.appendChild(el('text', {
+      x: chartLeft - 12, y: y + 4, 'text-anchor': 'end',
+      'font-size': '12', 'font-weight': '500', fill: '#94a3b8'
+    }, tick.toLocaleString()));
+  }
+
+  // Y-axis title
+  svg.appendChild(el('text', {
+    x: 0, y: 0, 'text-anchor': 'middle',
+    'font-size': '13', 'font-weight': '600', fill: '#64748b',
+    transform: `translate(28, ${(chartTop + chartBottom) / 2}) rotate(-90)`
+  }, 'Median tokens/second'));
+
+  // BF16 baseline dashed line
+  const baselineY = chartBottom - 5377 * yScale;
+  svg.appendChild(el('line', {
+    x1: chartLeft, y1: baselineY, x2: chartRight, y2: baselineY,
+    stroke: '#94a3b8', 'stroke-width': '1.5', 'stroke-dasharray': '6,4'
+  }));
+  svg.appendChild(el('text', {
+    x: chartRight + 4, y: baselineY + 4, 'text-anchor': 'start',
+    'font-size': '11', 'font-weight': '600', fill: '#94a3b8'
+  }, 'BF16 baseline'));
+
+  // Bars
+  bars.forEach((bar, i) => {
+    const x = chartLeft + i * groupWidth + barGap;
+    const barH = bar.value * yScale;
+    const y = chartBottom - barH;
+
+    // Bar
+    svg.appendChild(el('rect', {
+      x: x, y: y, width: barWidth, height: barH,
+      rx: '4', fill: bar.color
+    }));
+
+    // Value label — always directly above bar
+    svg.appendChild(el('text', {
+      x: x + barWidth / 2, y: y - 8, 'text-anchor': 'middle',
+      'font-size': '16', 'font-weight': '700', fill: '#1a1a1a'
+    }, bar.value.toLocaleString()));
+
+    // Speedup badge — above value label
+    if (bar.speedup) {
+      const badgeW = 58, badgeH = 22;
+      const badgeX = x + barWidth / 2 - badgeW / 2;
+      const badgeY = y - 52;
+
+      svg.appendChild(el('rect', {
+        x: badgeX, y: badgeY, width: badgeW, height: badgeH,
+        rx: '11', fill: '#dcfce7', stroke: '#86efac', 'stroke-width': '1'
+      }));
+      svg.appendChild(el('text', {
+        x: x + barWidth / 2, y: badgeY + 15, 'text-anchor': 'middle',
+        'font-size': '12', 'font-weight': '700', fill: '#166534'
+      }, bar.speedup));
+    }
+
+    // X-axis label (multi-line)
+    const lines = bar.label.split('\n');
+    lines.forEach((line, li) => {
+      svg.appendChild(el('text', {
+        x: x + barWidth / 2, y: chartBottom + 20 + li * 16, 'text-anchor': 'middle',
+        'font-size': '12', 'font-weight': li === 0 ? '600' : '500',
+        fill: li === 0 ? '#334155' : '#64748b'
+      }, line));
+    });
+  });
+
+  // Memory annotation
+  svg.appendChild(el('text', {
+    x: 450, y: chartBottom + 62, 'text-anchor': 'middle',
+    'font-size': '12', 'font-weight': '500', fill: '#64748b'
+  }, 'Peak memory ~39 GB across all configurations — speedups come from faster FP8 matrix cores, not memory savings'));
+
+  // Axes
+  svg.appendChild(el('line', {
+    x1: chartLeft, y1: chartBottom, x2: chartRight, y2: chartBottom,
+    stroke: '#cbd5e1', 'stroke-width': '1.5'
+  }));
+  svg.appendChild(el('line', {
+    x1: chartLeft, y1: chartTop, x2: chartLeft, y2: chartBottom,
+    stroke: '#cbd5e1', 'stroke-width': '1.5'
+  }));
+
+})();
+</script>
+</body>
+</html>

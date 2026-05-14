@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Figure 5: Per-category GPU Time Breakdown</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    padding: 20px;
+    background: #fff;
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .figure-container {
+    width: 900px;
+  }
+  svg text {
+    font-family: 'Inter', sans-serif;
+  }
+</style>
+</head>
+<body>
+<div class="figure-container">
+  <svg id="chart" width="900" height="720" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+<script>
+(function() {
+  const svg = document.getElementById('chart');
+  const NS = 'http://www.w3.org/2000/svg';
+
+  // Data
+  const categories = ['Attention', 'MoE', 'GEMM', 'Activation', 'Norm', 'Communication', 'Others'];
+  const data = {
+    'V1 BF16':          [69.44, 29.08, 194.50, 1.30, 3.91, 113.05, 253.05],
+    'V2 FP8 Upstream':  [70.15, 30.40, 191.18, 2.37, 4.15, 123.23, 369.38],
+    'V4 FP8+Fused':     [70.69, 29.99, 182.33, 2.34, 4.07, 127.07, 276.59]
+  };
+  const seriesKeys = ['V1 BF16', 'V2 FP8 Upstream', 'V4 FP8+Fused'];
+  const colors = { 'V1 BF16': '#666666', 'V2 FP8 Upstream': '#B8860B', 'V4 FP8+Fused': '#ED1C24' };
+
+  // Layout
+  const chartLeft = 90, chartRight = 870, chartTop = 118, chartBottom = 500;
+  const chartWidth = chartRight - chartLeft;
+  const chartHeight = chartBottom - chartTop;
+  const yMax = 400;
+  const yScale = chartHeight / yMax;
+
+  // Helper to create SVG elements
+  function el(tag, attrs, textContent) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+    if (textContent !== undefined) e.textContent = textContent;
+    return e;
+  }
+
+  // Background
+  svg.appendChild(el('rect', { x:0, y:0, width:900, height:720, fill:'#ffffff' }));
+
+  // Title
+  svg.appendChild(el('text', { x:450, y:32, 'text-anchor':'middle', 'font-size':'18', 'font-weight':'700', fill:'#1a1a1a' },
+    'Per-Category GPU Time Breakdown'));
+
+  // Workload label
+  svg.appendChild(el('text', { x:450, y:56, 'text-anchor':'middle', 'font-size':'13', 'font-weight':'500', fill:'#555' },
+    'DeepSeek-V3 671B (4-layer), 8\u00D7MI325X, EP=8'));
+
+  // TPS label
+  svg.appendChild(el('text', { x:450, y:76, 'text-anchor':'middle', 'font-size':'12.5', 'font-weight':'500', fill:'#666' },
+    'V1: 7,156 tok/s  |  V2: 5,996 tok/s  |  V4: 7,027 tok/s'));
+
+  // Total iteration time
+  svg.appendChild(el('text', { x:450, y:96, 'text-anchor':'middle', 'font-size':'12.5', 'font-weight':'600', fill:'#333' },
+    'Total step time \u2014 BF16: 664 ms  |  FP8 Upstream: 791 ms  |  FP8+Fused: 693 ms'));
+
+  // Y-axis gridlines and labels
+  const yTicks = [0, 50, 100, 150, 200, 250, 300, 350, 400];
+  for (const tick of yTicks) {
+    const y = chartBottom - tick * yScale;
+    // gridline
+    svg.appendChild(el('line', { x1: chartLeft, y1: y, x2: chartRight, y2: y,
+      stroke: tick === 0 ? '#888' : '#e0e0e0', 'stroke-width': tick === 0 ? '1.2' : '0.8',
+      'stroke-dasharray': tick === 0 ? 'none' : '4,3' }));
+    // label
+    svg.appendChild(el('text', { x: chartLeft - 10, y: y + 4, 'text-anchor': 'end',
+      'font-size': '12', fill: '#666', 'font-weight': '400' }, tick.toString()));
+  }
+
+  // Y-axis title
+  const yTitle = el('text', { x: 0, y: 0, 'text-anchor': 'middle',
+    'font-size': '13', 'font-weight': '600', fill: '#444',
+    transform: `translate(22, ${(chartTop + chartBottom) / 2}) rotate(-90)` }, 'Time (ms)');
+  svg.appendChild(yTitle);
+
+  // Bars
+  const numCats = categories.length;
+  const groupWidth = chartWidth / numCats;
+  const groupPadding = 14;
+  const barGap = 4;
+  const usableWidth = groupWidth - 2 * groupPadding;
+  const barWidth = (usableWidth - 2 * barGap) / 3;
+
+  for (let ci = 0; ci < numCats; ci++) {
+    const groupX = chartLeft + ci * groupWidth;
+    const isOthers = ci === 6;
+
+    // Highlight background for "Others"
+    if (isOthers) {
+      svg.appendChild(el('rect', {
+        x: groupX + 2, y: chartTop - 2,
+        width: groupWidth - 4, height: chartHeight + 4,
+        fill: '#FFF5F5', stroke: '#ED1C24', 'stroke-width': '1.2',
+        'stroke-dasharray': '6,3', rx: 4, ry: 4, opacity: '0.7'
+      }));
+    }
+
+    for (let si = 0; si < 3; si++) {
+      const key = seriesKeys[si];
+      const val = data[key][ci];
+      const barH = Math.max(val * yScale, 1.5); // min bar height for visibility
+      const bx = groupX + groupPadding + si * (barWidth + barGap);
+      const by = chartBottom - barH;
+
+      // Bar
+      svg.appendChild(el('rect', {
+        x: bx, y: by, width: barWidth, height: barH,
+        fill: colors[key], rx: 1.5, ry: 1.5
+      }));
+
+      // Value label on top of bar (only for bars tall enough or for key categories)
+      const showLabel = val > 15 || isOthers || ci === 2 || ci === 5;
+      if (showLabel) {
+        const labelY = by - 4;
+        svg.appendChild(el('text', {
+          x: bx + barWidth / 2, y: labelY < chartTop + 10 ? by + 14 : labelY,
+          'text-anchor': 'middle', 'font-size': '10', 'font-weight': '500',
+          fill: labelY < chartTop + 10 ? '#fff' : '#333'
+        }, val.toFixed(1)));
+      }
+    }
+
+    // Category label
+    const labelX = groupX + groupWidth / 2;
+    svg.appendChild(el('text', {
+      x: labelX, y: chartBottom + 20,
+      'text-anchor': 'middle', 'font-size': isOthers ? '13' : '12.5',
+      'font-weight': isOthers ? '700' : '500',
+      fill: isOthers ? '#ED1C24' : '#333'
+    }, categories[ci]));
+  }
+
+  // Annotation for "Others": bracket with callout "-92.79 ms (V2→V4)"
+  const othersGroupX = chartLeft + 6 * groupWidth;
+  const v2OthersTop = chartBottom - 369.38 * yScale;
+  const v4OthersTop = chartBottom - 276.59 * yScale;
+  const v2BarX = othersGroupX + groupPadding + 1 * (barWidth + barGap);
+  const v4BarX = othersGroupX + groupPadding + 2 * (barWidth + barGap);
+  const midY = (v2OthersTop + v4OthersTop) / 2;
+  const midBarX = (v2BarX + barWidth / 2 + v4BarX + barWidth / 2) / 2;
+
+  // Down arrow from V2 top to V4 top between the two bars
+  const arrowX = v2BarX + barWidth + barGap / 2;
+
+  // Vertical arrow line
+  svg.appendChild(el('line', { x1: arrowX, y1: v2OthersTop + 4, x2: arrowX, y2: v4OthersTop - 6,
+    stroke: '#ED1C24', 'stroke-width': '2.5', 'marker-end': 'none' }));
+  // Arrowhead (triangle pointing down)
+  svg.appendChild(el('polygon', {
+    points: `${arrowX - 5},${v4OthersTop - 8} ${arrowX + 5},${v4OthersTop - 8} ${arrowX},${v4OthersTop - 1}`,
+    fill: '#ED1C24'
+  }));
+  // Top tick (horizontal at V2 top level)
+  svg.appendChild(el('line', { x1: v2BarX + barWidth * 0.3, y1: v2OthersTop + 4, x2: arrowX + 4, y2: v2OthersTop + 4,
+    stroke: '#ED1C24', 'stroke-width': '2' }));
+
+  // Callout box positioned above the Others group
+  const calloutCX = othersGroupX + groupWidth / 2;
+  const calloutY = v2OthersTop - 8;
+  const calloutBg = el('rect', {
+    x: calloutCX - 48, y: calloutY - 34,
+    width: 96, height: 32, rx: 5, ry: 5,
+    fill: '#ED1C24', opacity: '0.92'
+  });
+  svg.appendChild(calloutBg);
+  svg.appendChild(el('text', {
+    x: calloutCX, y: calloutY - 18,
+    'text-anchor': 'middle', 'font-size': '11', 'font-weight': '700', fill: '#fff'
+  }, '\u221292.79 ms'));
+  svg.appendChild(el('text', {
+    x: calloutCX, y: calloutY - 5,
+    'text-anchor': 'middle', 'font-size': '10', 'font-weight': '500', fill: '#fff'
+  }, '(V2 \u2192 V4)'));
+  // Small connector line from callout to arrow
+  svg.appendChild(el('line', { x1: calloutCX, y1: calloutY - 2, x2: arrowX, y2: v2OthersTop + 4,
+    stroke: '#ED1C24', 'stroke-width': '1.2', 'stroke-dasharray': '3,2' }));
+
+  // Legend
+  const legendY = 545;
+  const legendItems = [
+    { label: 'V1 BF16', color: '#666666' },
+    { label: 'V2 FP8 Upstream', color: '#B8860B' },
+    { label: 'V4 FP8+Fused', color: '#ED1C24' }
+  ];
+  const legendStartX = 450 - 200;
+  for (let i = 0; i < legendItems.length; i++) {
+    const lx = legendStartX + i * 145;
+    svg.appendChild(el('rect', { x: lx, y: legendY - 8, width: 16, height: 12, fill: legendItems[i].color, rx: 2 }));
+    svg.appendChild(el('text', { x: lx + 22, y: legendY + 2, 'font-size': '12.5', 'font-weight': '500', fill: '#333' },
+      legendItems[i].label));
+  }
+
+  // Caption
+  const captionLines = [
+    'Figure 5: Per-category GPU time breakdown across three configurations on 8\u00D7MI325X with DeepSeek-V3',
+    '671B (4-layer MoE). The FP8 upstream configuration (V2) adds 127 ms/step \u2014 92% of which lands in',
+    '"Others" (generic quantization kernels). The fused Triton kernel (V4) eliminates most of this',
+    'overhead, recovering 89% of the BF16\u2192FP8 gap.'
+  ];
+
+  // Caption background
+  svg.appendChild(el('rect', { x: 30, y: 580, width: 840, height: 80, fill: '#f8f8f8', rx: 6, stroke: '#e0e0e0', 'stroke-width': '1' }));
+
+  for (let i = 0; i < captionLines.length; i++) {
+    svg.appendChild(el('text', {
+      x: 450, y: 598 + i * 17,
+      'text-anchor': 'middle', 'font-size': '12', 'font-weight': i === 0 ? '600' : '400',
+      fill: '#444', 'font-style': 'normal'
+    }, captionLines[i]));
+  }
+
+  // Left axis line
+  svg.appendChild(el('line', { x1: chartLeft, y1: chartTop, x2: chartLeft, y2: chartBottom,
+    stroke: '#888', 'stroke-width': '1.2' }));
+
+})();
+</script>
+</body>
+</html>

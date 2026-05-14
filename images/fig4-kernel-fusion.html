@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Figure 4: Backward-Pass FP8 Kernel Fusion</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #ffffff;
+  font-family: 'Inter', sans-serif;
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+.figure-wrapper {
+  width: 1100px;
+}
+.caption {
+  font-size: 15px;
+  color: #444;
+  line-height: 1.55;
+  margin-top: 14px;
+  padding: 0 10px;
+}
+.caption strong {
+  color: #222;
+}
+</style>
+</head>
+<body>
+<div class="figure-wrapper">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 900" width="1100" height="900" font-family="'Inter', sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.10"/>
+    </filter>
+    <filter id="shadowLg" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#ED1C24" flood-opacity="0.18"/>
+    </filter>
+    <marker id="arrowWhite" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <path d="M0,0 L10,3.5 L0,7 Z" fill="#fff"/>
+    </marker>
+    <marker id="arrowDark" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <path d="M0,0 L10,3.5 L0,7 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="900" fill="#ffffff"/>
+
+  <!-- ==================== LEFT PANEL ==================== -->
+  <!-- x=20, w=450, center=245 -->
+  <rect x="20" y="14" width="450" height="870" rx="14" fill="#f7f7f8" stroke="#ddd" stroke-width="1"/>
+
+  <!-- Panel title -->
+  <text x="245" y="52" text-anchor="middle" font-size="20" font-weight="700" fill="#333">Before — Upstream Backward</text>
+  <line x1="60" y1="66" x2="430" y2="66" stroke="#ddd" stroke-width="1"/>
+
+  <!-- Box 0: redundant transpose copy (#3972) -->
+  <rect x="56" y="84" width="378" height="66" rx="8" fill="#f5e0e0" stroke="#d99" stroke-width="1" filter="url(#shadow)"/>
+  <text x="245" y="112" text-anchor="middle" font-size="17" font-weight="700" fill="#993333">⓪ .t().contiguous().t()</text>
+  <text x="245" y="136" text-anchor="middle" font-size="15" fill="#884444">Redundant full-tensor HBM copy</text>
+
+  <!-- HBM bar 0 -->
+  <rect x="170" y="158" width="150" height="26" rx="5" fill="#fff3e0" stroke="#e0a040" stroke-width="1"/>
+  <text x="245" y="176" text-anchor="middle" font-size="14" font-weight="600" fill="#b08030">↕ HBM R/W</text>
+
+  <!-- Box 1: tensor_to_scale -->
+  <rect x="56" y="194" width="378" height="66" rx="8" fill="#e8e8ec" stroke="#bbb" stroke-width="1" filter="url(#shadow)"/>
+  <text x="245" y="222" text-anchor="middle" font-size="17" font-weight="700" fill="#333">① tensor_to_scale</text>
+  <text x="245" y="246" text-anchor="middle" font-size="15" fill="#555">AbsFunctor — compute absmax</text>
+
+  <!-- HBM bar 1 -->
+  <rect x="170" y="268" width="150" height="26" rx="5" fill="#fff3e0" stroke="#e0a040" stroke-width="1"/>
+  <text x="245" y="286" text-anchor="middle" font-size="14" font-weight="600" fill="#b08030">↕ HBM R/W</text>
+
+  <!-- Box 2: reduce -->
+  <rect x="56" y="304" width="378" height="66" rx="8" fill="#e8e8ec" stroke="#bbb" stroke-width="1" filter="url(#shadow)"/>
+  <text x="245" y="332" text-anchor="middle" font-size="17" font-weight="700" fill="#333">② reduce</text>
+  <text x="245" y="356" text-anchor="middle" font-size="15" fill="#555">MaxNan — absmax → scalar scale</text>
+
+  <!-- HBM bar 2 -->
+  <rect x="170" y="378" width="150" height="26" rx="5" fill="#fff3e0" stroke="#e0a040" stroke-width="1"/>
+  <text x="245" y="396" text-anchor="middle" font-size="14" font-weight="600" fill="#b08030">↕ HBM R/W</text>
+
+  <!-- Box 3: upcast + scale -->
+  <rect x="56" y="414" width="378" height="66" rx="8" fill="#e8e8ec" stroke="#bbb" stroke-width="1" filter="url(#shadow)"/>
+  <text x="245" y="442" text-anchor="middle" font-size="17" font-weight="700" fill="#333">③ scale × upcast_to_float32</text>
+  <text x="245" y="466" text-anchor="middle" font-size="15" fill="#555">BF16 → FP32 + multiply by scale</text>
+
+  <!-- HBM bar 3 -->
+  <rect x="170" y="488" width="150" height="26" rx="5" fill="#fff3e0" stroke="#e0a040" stroke-width="1"/>
+  <text x="245" y="506" text-anchor="middle" font-size="14" font-weight="600" fill="#b08030">↕ HBM R/W</text>
+
+  <!-- Box 4: to_fp8_saturated -->
+  <rect x="56" y="524" width="378" height="66" rx="8" fill="#e8e8ec" stroke="#bbb" stroke-width="1" filter="url(#shadow)"/>
+  <text x="245" y="552" text-anchor="middle" font-size="17" font-weight="700" fill="#333">④ to_fp8_saturated</text>
+  <text x="245" y="576" text-anchor="middle" font-size="15" fill="#555">clamp + cast to FP8</text>
+
+  <!-- Left panel note: this runs for BOTH grad_output and input -->
+  <line x1="56" y1="610" x2="434" y2="610" stroke="#ddd" stroke-width="1"/>
+  <text x="245" y="638" text-anchor="middle" font-size="16" fill="#888">Runs separately for grad_output</text>
+  <text x="245" y="660" text-anchor="middle" font-size="16" fill="#888">and input activation</text>
+
+  <!-- Left panel bottom stats -->
+  <line x1="56" y1="680" x2="434" y2="680" stroke="#ddd" stroke-width="1"/>
+  <text x="245" y="712" text-anchor="middle" font-size="18" font-weight="700" fill="#555">5 kernel launches × 2 tensors</text>
+  <text x="245" y="738" text-anchor="middle" font-size="16" fill="#888">+ redundant transpose copy</text>
+  <rect x="86" y="758" width="318" height="40" rx="7" fill="#f0f0f0" stroke="#ccc" stroke-width="1"/>
+  <text x="245" y="784" text-anchor="middle" font-size="16" font-weight="600" fill="#555">Multiple HBM round-trips per layer</text>
+
+  <!-- ==================== CENTER ARROW ==================== -->
+  <!-- Gap: x=470 to x=630, width=160, center=550 -->
+  <rect x="482" y="250" width="136" height="370" rx="12" fill="#fafafa" stroke="#e8e8e8" stroke-width="1"/>
+
+  <!-- Labels above arrow -->
+  <text x="550" y="304" text-anchor="middle" font-size="16" font-weight="700" fill="#ED1C24">#3972</text>
+  <text x="550" y="324" text-anchor="middle" font-size="14" font-weight="600" fill="#ED1C24">removes</text>
+  <text x="550" y="342" text-anchor="middle" font-size="14" font-weight="600" fill="#ED1C24">transpose</text>
+  <line x1="500" y1="356" x2="600" y2="356" stroke="#e8e8e8" stroke-width="1"/>
+  <text x="550" y="380" text-anchor="middle" font-size="16" font-weight="700" fill="#ED1C24">#4069</text>
+  <text x="550" y="400" text-anchor="middle" font-size="14" font-weight="600" fill="#ED1C24">fuses</text>
+  <text x="550" y="418" text-anchor="middle" font-size="14" font-weight="600" fill="#ED1C24">chain</text>
+
+  <!-- Arrow shape — centered at x=550, y=455 -->
+  <polygon points="522,446 572,446 572,426 598,455 572,484 572,464 522,464" fill="#ED1C24" opacity="0.9"/>
+
+  <!-- Labels below arrow -->
+  <text x="550" y="520" text-anchor="middle" font-size="20" font-weight="800" fill="#ED1C24">+15%</text>
+  <text x="550" y="544" text-anchor="middle" font-size="15" font-weight="600" fill="#ED1C24">throughput</text>
+  <text x="550" y="564" text-anchor="middle" font-size="15" font-weight="600" fill="#ED1C24">gain</text>
+
+  <!-- ==================== RIGHT PANEL ==================== -->
+  <!-- x=630, w=450, center=855 -->
+  <rect x="630" y="14" width="450" height="870" rx="14" fill="#fef5f5" stroke="#f5c6c6" stroke-width="1"/>
+
+  <!-- Panel title -->
+  <text x="855" y="52" text-anchor="middle" font-size="20" font-weight="700" fill="#333">After — Fused Backward</text>
+  <line x1="674" y1="66" x2="1036" y2="66" stroke="#f5c6c6" stroke-width="1"/>
+
+  <!-- Annotation: .t().contiguous().t() eliminated -->
+  <rect x="672" y="84" width="366" height="44" rx="7" fill="#e8f5e9" stroke="#66bb6a" stroke-width="1"/>
+  <text x="855" y="105" text-anchor="middle" font-size="15" font-weight="600" fill="#2e7d32">✓ Redundant transpose eliminated (#3972)</text>
+  <text x="855" y="123" text-anchor="middle" font-size="14" fill="#388e3c">No more .t().contiguous().t() copy</text>
+
+  <!-- HBM Read arrow into fused kernel -->
+  <rect x="745" y="144" width="220" height="32" rx="6" fill="#e3f2fd" stroke="#64b5f6" stroke-width="1"/>
+  <text x="855" y="166" text-anchor="middle" font-size="15" font-weight="600" fill="#1565c0">HBM Read (BF16 tensor)</text>
+  <line x1="855" y1="176" x2="855" y2="200" stroke="#64b5f6" stroke-width="2" marker-end="url(#arrowDark)"/>
+
+  <!-- Single large fused kernel box -->
+  <rect x="666" y="204" width="378" height="330" rx="12" fill="#ED1C24" stroke="#c41018" stroke-width="1.5" filter="url(#shadowLg)"/>
+
+  <!-- Kernel title -->
+  <text x="855" y="238" text-anchor="middle" font-size="18" font-weight="700" fill="#fff">Fused scale-and-cast kernel</text>
+  <text x="855" y="260" text-anchor="middle" font-size="14" fill="rgba(255,255,255,0.8)">PR #4069</text>
+
+  <!-- Divider inside kernel -->
+  <line x1="694" y1="274" x2="1016" y2="274" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+
+  <!-- Pass 1 -->
+  <rect x="694" y="290" width="322" height="92" rx="9" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+  <text x="855" y="318" text-anchor="middle" font-size="18" font-weight="700" fill="#fff">Pass 1</text>
+  <text x="855" y="342" text-anchor="middle" font-size="16" fill="rgba(255,255,255,0.92)">Compute per-row absmax</text>
+  <text x="855" y="364" text-anchor="middle" font-size="15" fill="rgba(255,255,255,0.75)">Data stays in L2 cache</text>
+
+  <!-- Arrow between passes (L2 cache reuse) -->
+  <line x1="855" y1="382" x2="855" y2="412" stroke="#fff" stroke-width="2.5" stroke-dasharray="5,3" marker-end="url(#arrowWhite)"/>
+  <rect x="892" y="386" width="116" height="26" rx="5" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>
+  <text x="950" y="404" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">L2 reuse ⚡</text>
+
+  <!-- Pass 2 -->
+  <rect x="694" y="418" width="322" height="92" rx="9" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+  <text x="855" y="446" text-anchor="middle" font-size="18" font-weight="700" fill="#fff">Pass 2</text>
+  <text x="855" y="470" text-anchor="middle" font-size="16" fill="rgba(255,255,255,0.92)">Scale + cast to FP8</text>
+  <text x="855" y="492" text-anchor="middle" font-size="15" fill="rgba(255,255,255,0.75)">Reuses data from L2 cache</text>
+
+  <!-- Fused label -->
+  <rect x="940" y="512" width="90" height="26" rx="5" fill="rgba(255,255,255,0.25)"/>
+  <text x="985" y="530" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">FUSED ✓</text>
+
+  <!-- HBM Write arrow out of fused kernel -->
+  <line x1="855" y1="534" x2="855" y2="558" stroke="#64b5f6" stroke-width="2" marker-end="url(#arrowDark)"/>
+  <rect x="745" y="562" width="220" height="32" rx="6" fill="#e8f5e9" stroke="#66bb6a" stroke-width="1"/>
+  <text x="855" y="584" text-anchor="middle" font-size="15" font-weight="600" fill="#2e7d32">HBM Write (FP8 tensor)</text>
+
+  <!-- Dual kernel bonus -->
+  <rect x="666" y="614" width="378" height="72" rx="9" fill="#fff" stroke="#ED1C24" stroke-width="1.5" stroke-dasharray="7,4" filter="url(#shadow)"/>
+  <text x="855" y="640" text-anchor="middle" font-size="16" font-weight="700" fill="#ED1C24">Dual quantization kernel</text>
+  <text x="855" y="662" text-anchor="middle" font-size="15" fill="#555">Fuses grad_output + input into single launch</text>
+  <text x="855" y="680" text-anchor="middle" font-size="14" fill="#888">One row-iteration loop visits each row once</text>
+
+  <!-- Right panel bottom stats -->
+  <line x1="674" y1="706" x2="1036" y2="706" stroke="#f5c6c6" stroke-width="1"/>
+  <text x="855" y="738" text-anchor="middle" font-size="18" font-weight="700" fill="#ED1C24">1 fused kernel + 1 dual kernel</text>
+  <text x="855" y="764" text-anchor="middle" font-size="16" fill="#c41018">L2 cache reuse, no FP32 intermediate</text>
+  <rect x="700" y="782" width="310" height="40" rx="7" fill="#fde8e8" stroke="#f5c6c6" stroke-width="1"/>
+  <text x="855" y="808" text-anchor="middle" font-size="16" font-weight="600" fill="#ED1C24">No redundant copies or round-trips</text>
+
+  <!-- ==================== RESULT BANNER ==================== -->
+  <rect x="140" y="846" width="820" height="46" rx="9" fill="#ED1C24" filter="url(#shadow)"/>
+  <text x="550" y="876" text-anchor="middle" font-size="19" font-weight="700" fill="#fff">1,865 → 2,153 tok/s  (+15%)  •  8×MI300X  •  DeepSeek-MoE-16B</text>
+
+</svg>
+
+<p class="caption">
+  <strong>Figure 4:</strong> Backward-pass FP8 quantization before and after optimization. PR <a href="https://github.com/pytorch/ao/pull/3972">#3972</a> eliminates the redundant <code>.t().contiguous().t()</code> transpose copy, and PR <a href="https://github.com/pytorch/ao/pull/4069">#4069</a> fuses the three-step scale-and-cast chain into a single two-pass Triton kernel that reuses L2 cache between passes. A companion dual-kernel fuses quantization of both grad_output and input activation into one launch. Together these delivered a 15% throughput improvement on 8×MI300X.
+</p>
+</div>
+</body>
+</html>
