@@ -4,15 +4,13 @@
 
 ---
 
-In October, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using an internal AMD fork of TorchTitan, PyTorch's native distributed training framework. That milestone proved that large-scale LLM training can achieve strong scaling on ROCm when the full software stack is optimized end-to-end.
+At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for TorchTitan. That milestone proved that large-scale LLM training can achieve strong scaling on ROCm when the full software stack is optimized end-to-end.
 
-A fork was not the end goal though, and our focus has shifted to ensuring our optimizations work for everyone. Following the PyTorch Conference, we have been upstreaming AMD optimizations, so TorchTitan can natively support AMD GPUs with competitive performance out of the box at different precision levels.
+But an internal library was not the end goal, and our focus has shifted to ensuring our optimizations work for everyone. We have been upstreaming AMD optimizations so that TorchTitan can natively support AMD GPUs with competitive FP8 performance out of the box.
 
 To get there, we worked with the TorchTitan and PyTorch teams to identify and land changes across the full software stack, from high-level training orchestration down to PyTorch core kernels.
 
-Standard LLM training uses BF16 (16-bit) precision for matrix multiplications. FP8 training halves that to 8 bits by using a scaling factor to preserve dynamic range within the reduced precision.
-
-This blog traces the upstream engineering effort that brought FP8 training to AMD GPUs across both torchao and torchtitan, from the first dtype detection PR in October 2024 through production-ready MoE FP8 kernels in May 2026.
+This blog traces the upstream engineering effort that brought FP8 training to AMD GPUs across both torchao and torchtitan, from the first hardware-aware FP8 support through production-ready MoE FP8 kernels.
 
 
 ## Background: FP8 on AMD and the First Upstream Changes
@@ -25,24 +23,13 @@ AMD Instinct GPUs implement a variant of the FP8 formats called FNUZ (Finite, No
 | NaN/Inf encodings | Yes | No |
 | Hardware | H100, H200 | MI300X, MI325X, MI350X |
 
-The software stack for FP8 training has two main layers. [TorchAO](https://github.com/pytorch/ao) provides the FP8 primitives: Float8Linear modules, quantization kernels, and scaled grouped matrix multiplication for MoE architectures. [TorchTitan](https://github.com/pytorch/torchtitan) is the distributed training engine that composes these primitives with FSDP2, Tensor Parallelism, Pipeline Parallelism, and Context Parallelism to run training across multi-GPU clusters. TorchTitan hooks into TorchAO's quantization API at runtime to swap model weights, which is where the FP8 support lives.
-
 ![Figure 1: TorchTitan FP8 Training Software Stack on ROCm](images/fig1-software-stack.png)
 
-*Figure 1: The TorchTitan FP8 training software stack on ROCm. AMD's upstream contributions span all four layers — from Triton kernel optimizations and FP8 dtype support in TorchAO to CI integration and MFU fixes in TorchTitan.*
+*Figure 1: The TorchTitan FP8 training software stack on ROCm. AMD's upstream contributions span all layers — from Triton kernel optimizations and FP8 dtype support in TorchAO to MFU fixes in TorchTitan.*
 
 The first upstream challenge was making this stack aware of AMD's FP8 formats. The torchao library initially hardcoded NVIDIA's e4m3fn dtype for all FP8 operations. On AMD hardware, this silently produced wrong results as scales were computed against a max of 448 when the hardware's actual max is 240. The fix came in stages. In October 2024, torchao [#1142](https://github.com/pytorch/ao/pull/1142)/[#1150](https://github.com/pytorch/ao/pull/1150) landed to auto-detect the GPU and default to FNUZ types on AMD. The PyTorch team added hardware capability checks ([#1314](https://github.com/pytorch/ao/pull/1314)), and we landed further fixes for OCP FP8 support ([#1677](https://github.com/pytorch/ao/pull/1677)) and correct quant dtype selection on AMD ([#2225](https://github.com/pytorch/ao/pull/2225)). These PRs gave the FP8 stack the ability to detect AMD hardware and use the right dtype, laying the foundation for everything that followed.
 
-
-## Enabling FP8 Training in TorchTitan on ROCm
-
-By early 2025, TorchTitan already had a mature FP8 training path built by the PyTorch team: Float8 parallel strategies, FSDP2 FP8 all-gather, rowwise scaling, and a clean Float8Handler abstraction. The challenge for AMD was not rebuilding this from scratch but ensuring each layer of the stack worked correctly on ROCm.
-
-The integration work began with ROCm CI enablement ([#1786](https://github.com/pytorch/torchtitan/pull/1786), October 2025). Turning on CI immediately revealed gaps: FP8 training produced different numerical results on AMD due to FNUZ formats, requiring platform-specific loss baselines ([#2156](https://github.com/pytorch/torchtitan/pull/2156)/[#2157](https://github.com/pytorch/torchtitan/pull/2157)). MFU reporting assumed NVIDIA peak FLOPS and needed AMD values ([#920](https://github.com/pytorch/torchtitan/pull/920)). On the torchao side, most FP8 tests were blanket-skipped on ROCm. We replaced these with hardware capability gates ([#3992](https://github.com/pytorch/ao/pull/3992)–[#3995](https://github.com/pytorch/ao/pull/3995)), which surfaced real failures we then fixed ([#4061](https://github.com/pytorch/ao/pull/4061)). By April 2026, CI had migrated to MI350 runners ([#2740](https://github.com/pytorch/torchtitan/pull/2740)) with functional tests replacing mocks ([#4228](https://github.com/pytorch/ao/pull/4228)).
-
-![Figure 2: ROCm CI Timeline](images/fig2-ci-timeline.png)
-
-*Figure 2: ROCm CI progression in torchao and torchtitan — from blanket test skips to capability-gated functional tests on MI350.*
+On the TorchTitan side, MFU reporting assumed NVIDIA peak FLOPS; we added correct AMD MI300X values ([#920](https://github.com/pytorch/torchtitan/pull/920)). FP8 training also produced different numerical results on AMD due to FNUZ formats, requiring platform-specific loss baselines ([#2156](https://github.com/pytorch/torchtitan/pull/2156)/[#2157](https://github.com/pytorch/torchtitan/pull/2157)).
 
 ## Scaling FP8 to MoE Architectures
 
@@ -102,9 +89,9 @@ The kernel-level optimizations described above compound on top of these numbers.
 
 ## Summary, and Next Steps
 
-This blog traced the upstream engineering effort that brought FP8 training to AMD Instinct GPUs across torchao and torchtitan, solving challenges at every layer of the stack: teaching torchao's FP8 primitives about AMD's FNUZ formats and their different dynamic range, integrating ROCm CI into TorchTitan with platform-specific loss baselines, implementing FP8 grouped GEMM for MoE architectures through AMD's Composable Kernel backend, and systematically fusing Triton quantization kernels to close the performance gap.
+This blog traced the upstream engineering effort that brought FP8 training to AMD Instinct GPUs across torchao and torchtitan, solving challenges at every layer of the stack: teaching torchao's FP8 primitives about AMD's FNUZ formats and their different dynamic range, implementing FP8 grouped GEMM for MoE architectures through AMD's Composable Kernel backend, and systematically fusing Triton quantization kernels to close the performance gap.
 
-Several areas of active development lie ahead. Tensorwise scaling optimizations for FP8 DeepSeek shapes are being upstreamed to close the gap with rowwise performance. We expected FP8 GEMM speedups to translate directly to end-to-end throughput gains, but FP8 introduces overhead in non-GEMM areas that partially offsets those savings, so isolating these sources is an active area of investigation. On next-generation hardware, we are developing MXFP8 grouped GEMM and quantization kernels for forward and backward passes on MI355X GPUs — results will follow in a future blog. CI has already migrated to MI350 runner labels ([#2740](https://github.com/pytorch/torchtitan/pull/2740), [#4228](https://github.com/pytorch/ao/pull/4228)), and the kernel fusion pipeline (#3972 → #4069 → #4113 → #4311) continues with further Triton optimizations.
+Several areas of active development lie ahead. Tensorwise scaling optimizations for FP8 DeepSeek shapes are being upstreamed to close the gap with rowwise performance. We expected FP8 GEMM speedups to translate directly to end-to-end throughput gains, but FP8 introduces overhead in non-GEMM areas that partially offsets those savings, so isolating these sources is an active area of investigation. On next-generation hardware, we are developing MXFP8 grouped GEMM and quantization kernels for forward and backward passes on MI355X GPUs — results will follow in a future blog. The kernel fusion pipeline (#3972 → #4069 → #4113 → #4311) continues with further Triton optimizations.
 
 This work was a collaboration between AMD and Meta/PyTorch engineers. All contributions are merged into mainline pytorch/ao and pytorch/torchtitan, ensuring that FP8 training on AMD GPUs works out of the box for the broader PyTorch community.
 
