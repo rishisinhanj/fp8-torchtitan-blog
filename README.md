@@ -4,7 +4,7 @@
 
 ---
 
-At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for training frameworks like TorchTitan and Megatron. However, an internal library was not the end goal. We have been upstreaming AMD optimizations, so that TorchTitan can natively support AMD GPUs with competitive FP8 performance out of the box in upstream Pytorch. 
+At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for training frameworks like TorchTitan and Megatron. However, an internal library was not the end goal. We have been upstreaming AMD optimizations, so that TorchTitan can natively support AMD GPUs with competitive FP8 performance out of the box in upstream PyTorch.
 
 FP8 training on AMD Instinct GPUs now delivers a 14.7% throughput gain over BF16. Through fused Triton quantization kernels, we recovered 89% of the FP8 quantization overhead on DeepSeek-V3 671B MoE shapes, with individual kernel optimizations delivering up to a 6.2× speedup. All of this work is merged into mainline [pytorch/ao](https://github.com/pytorch/ao) and [pytorch/torchtitan](https://github.com/pytorch/torchtitan).
 
