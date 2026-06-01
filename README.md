@@ -6,13 +6,13 @@
 
 At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for training frameworks like TorchTitan and Megatron. However, an internal library was not the end goal. We have been upstreaming AMD optimizations, so that TorchTitan can natively support AMD GPUs with competitive FP8 performance out of the box in upstream PyTorch.
 
-FP8 training on AMD Instinct GPUs now delivers a 14.7% throughput gain over BF16. Through fused Triton quantization kernels, we recovered 89% of the FP8 quantization overhead on DeepSeek-V3 671B MoE shapes, with individual kernel optimizations delivering up to a 6.2× speedup. All of this work is merged into mainline [pytorch/ao](https://github.com/pytorch/ao) and [pytorch/torchtitan](https://github.com/pytorch/torchtitan).
+Through fused Triton quantization kernels, we recovered 89% of the FP8 quantization overhead on DeepSeek-V3 671B MoE shapes, with individual kernel optimizations delivering up to a 6.2× speedup. On dense models, FP8 training delivers a 14.7% throughput gain over BF16 on Llama3-8B. All of this work is merged into mainline [pytorch/ao](https://github.com/pytorch/ao) and [pytorch/torchtitan](https://github.com/pytorch/torchtitan).
 
 This blog traces that upstream effort: from hardware-aware FP8 support, through MoE grouped GEMM on ROCm, to the Triton kernel fusion pipeline that closed the performance gap.
 
 ![Figure 1: FP8 Training Throughput](images/fig-perf-throughput.png)
 
-*Figure 1: FP8 training throughput on 8×MI300X with Llama3-8B (batch size 1, seq len 8192, 100 steps, torch.compile, FSDP2, per-op selective activation checkpointing). Tensorwise FP8 delivers a 14.7% throughput gain over BF16, with peak memory nearly identical (~39 GB) — the win comes from faster FP8 matrix cores, not memory savings. All numbers from torchao [PR #2736](https://github.com/pytorch/ao/pull/2736).*
+*Figure 1: FP8 training throughput on 8×MI300X with Llama3-8B (batch size 1, seq len 8192, 100 steps, torch.compile, FSDP2, per-op selective activation checkpointing). Tensorwise FP8 delivers a 14.7% throughput gain over BF16, with peak memory nearly identical (~39 GB). The win comes from faster FP8 matrix cores, not memory savings. All numbers from torchao [PR #2736](https://github.com/pytorch/ao/pull/2736).*
 
 
 ## FP8 on AMD: Formats and First Fixes
