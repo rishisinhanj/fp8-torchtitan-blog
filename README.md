@@ -4,16 +4,18 @@
 
 ---
 
-At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for training frameworks like TorchTitan and Megatron. That milestone proved that large-scale LLM training can achieve strong scaling on ROCm when the full software stack is optimized end-to-end.
+FP8 training on AMD Instinct GPUs now delivers a 14.7% throughput gain over BF16 — and it works out of the box in upstream PyTorch. Through fused Triton quantization kernels, we recovered 89% of the FP8 quantization overhead on DeepSeek-V3 671B MoE shapes, with individual kernel optimizations delivering up to a 6.2× speedup. All of this work is merged into mainline [pytorch/ao](https://github.com/pytorch/ao) and [pytorch/torchtitan](https://github.com/pytorch/torchtitan).
 
-But an internal library was not the end goal, and our focus has shifted to ensuring our optimizations work for everyone. We have been upstreaming AMD optimizations so that TorchTitan can natively support AMD GPUs with competitive FP8 performance out of the box.
+![Figure 1: FP8 Training Throughput](images/fig-perf-throughput.png)
 
-To get there, we worked with the TorchTitan and PyTorch teams to identify and land changes across the full software stack, from high-level training orchestration down to PyTorch core kernels.
+*Figure 1: FP8 training throughput on 8×MI300X with Llama3-8B (batch size 1, seq len 8192, 100 steps, torch.compile, FSDP2, per-op selective activation checkpointing). Tensorwise FP8 delivers a 14.7% throughput gain over BF16, with peak memory nearly identical (~39 GB) — the win comes from faster FP8 matrix cores, not memory savings. All numbers from torchao [PR #2736](https://github.com/pytorch/ao/pull/2736).*
 
-This blog traces the upstream engineering effort that brought FP8 training to AMD GPUs across both torchao and torchtitan, from the first hardware-aware FP8 support through production-ready MoE FP8 kernels.
+At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for training frameworks like TorchTitan and Megatron. But an internal library was not the end goal — we have been upstreaming AMD optimizations so that TorchTitan can natively support AMD GPUs with competitive FP8 performance out of the box.
+
+This blog traces that upstream effort: from hardware-aware FP8 dtype support, through MoE grouped GEMM on ROCm, to the Triton kernel fusion pipeline that closed the performance gap.
 
 
-## Background: FP8 on AMD and the First Upstream Changes
+## FP8 on AMD: Formats and First Fixes
 
 AMD Instinct GPUs implement a variant of the FP8 formats called FNUZ (Finite, No NaN, Unsigned Zero). The primary difference is that e4m3fnuz has a maximum value of 240, compared to 448 for NVIDIA's e4m3fn.
 
@@ -23,13 +25,14 @@ AMD Instinct GPUs implement a variant of the FP8 formats called FNUZ (Finite, No
 | NaN/Inf encodings | Yes | No |
 | Hardware | H100, H200 | MI300X, MI325X, MI350X |
 
-![Figure 1: TorchTitan FP8 Training Software Stack on ROCm](images/fig1-software-stack.png)
+![Figure 2: TorchTitan FP8 Training Software Stack on ROCm](images/fig1-software-stack.png)
 
-*Figure 1: The TorchTitan FP8 training software stack on ROCm. AMD's upstream contributions span all layers — from Triton kernel optimizations and FP8 dtype support in TorchAO to MFU fixes in TorchTitan.*
+*Figure 2: The TorchTitan FP8 training software stack on ROCm. AMD's upstream contributions span all layers — from Triton kernel optimizations and FP8 dtype support in TorchAO to MFU fixes in TorchTitan.*
 
-The first upstream challenge was making this stack aware of AMD's FP8 formats. The torchao library initially hardcoded NVIDIA's e4m3fn dtype for all FP8 operations. On AMD hardware, this silently produced wrong results as scales were computed against a max of 448 when the hardware's actual max is 240. The fix came in stages. In October 2024, torchao [#1142](https://github.com/pytorch/ao/pull/1142)/[#1150](https://github.com/pytorch/ao/pull/1150) landed to auto-detect the GPU and default to FNUZ types on AMD. The PyTorch team added hardware capability checks ([#1314](https://github.com/pytorch/ao/pull/1314)), and we landed further fixes for OCP FP8 support ([#1677](https://github.com/pytorch/ao/pull/1677)) and correct quant dtype selection on AMD ([#2225](https://github.com/pytorch/ao/pull/2225)). These PRs gave the FP8 stack the ability to detect AMD hardware and use the right dtype, laying the foundation for everything that followed.
+The torchao library initially hardcoded NVIDIA's e4m3fn dtype for all FP8 operations — on AMD hardware, this silently produced wrong results as scales were computed against a max of 448 when the hardware's actual max is 240. We fixed this in stages: torchao [#1142](https://github.com/pytorch/ao/pull/1142)/[#1150](https://github.com/pytorch/ao/pull/1150) added GPU auto-detection for FNUZ types, followed by hardware capability checks ([#1314](https://github.com/pytorch/ao/pull/1314)), OCP FP8 support ([#1677](https://github.com/pytorch/ao/pull/1677)), and correct quant dtype selection on AMD ([#2225](https://github.com/pytorch/ao/pull/2225)). On the TorchTitan side, we added correct AMD MI300X FLOPS values for MFU reporting ([#920](https://github.com/pytorch/torchtitan/pull/920)) and platform-specific loss baselines for FNUZ numerics ([#2156](https://github.com/pytorch/torchtitan/pull/2156)/[#2157](https://github.com/pytorch/torchtitan/pull/2157)).
 
-On the TorchTitan side, MFU reporting assumed NVIDIA peak FLOPS; we added correct AMD MI300X values ([#920](https://github.com/pytorch/torchtitan/pull/920)). FP8 training also produced different numerical results on AMD due to FNUZ formats, requiring platform-specific loss baselines ([#2156](https://github.com/pytorch/torchtitan/pull/2156)/[#2157](https://github.com/pytorch/torchtitan/pull/2157)).
+FP8 scaling can be applied at different granularities: a single scale per tensor (tensorwise), a scale per row (rowwise), per fixed-size tile (blockwise), or per group packed alongside the data (MXFP8). All four are now supported on AMD through upstream PRs in torchtitan ([#153](https://github.com/pytorch/torchtitan/pull/153), [#808](https://github.com/pytorch/torchtitan/pull/808), [#1190](https://github.com/pytorch/torchtitan/pull/1190)) and torchao ([#3996](https://github.com/pytorch/ao/pull/3996)).
+
 
 ## Scaling FP8 to MoE Architectures
 
@@ -76,16 +79,8 @@ Each step is a separate kernel launch, and materializes an intermediate tensor t
 
 **Autotuning Challenge.** We expanded the Triton autotune search space for MoE FP8 kernels from 1 to 8–16 candidate configurations ([#3952](https://github.com/pytorch/ao/pull/3952)), expecting the wider search to find faster tile sizes on AMD's wavefront-based architecture. It didn't as benchmarking on Llama 4 shapes on MI300X showed no measurable improvement, and the extra configs increased first-iteration compile time. We reverted it ([#4024](https://github.com/pytorch/ao/pull/4024)). The takeaway: autotuning search spaces should be shaped by hardware constraints (wavefront size, LDS capacity, register pressure), not expanded blindly. More configs does not always mean faster.
 
+These kernel-level optimizations compound on top of the baseline FP8 throughput gains shown in Figure 1. On DeepSeek-V3 671B shapes, the forward-pass kernel fusion alone recovered 89% of the quantization overhead (5,996 → 7,027 tok/s vs 7,156 BF16 baseline on 8×MI325X), and the colwise scales optimization delivered a 6.2× speedup per MoE layer.
 
-## Performance Results
-
-The FP8 scaling factor can be applied at different granularities: a single scale per tensor (tensorwise), a scale per row (rowwise), per fixed-size tile (blockwise), or per group packed alongside the data (MXFP8). All four are now supported on AMD through upstream PRs in torchtitan ([#153](https://github.com/pytorch/torchtitan/pull/153), [#808](https://github.com/pytorch/torchtitan/pull/808), [#1190](https://github.com/pytorch/torchtitan/pull/1190)) and torchao ([#3996](https://github.com/pytorch/ao/pull/3996)). The chart below compares tensorwise and rowwise FP8 against a BF16 baseline on 8xMI300X GPUs with Llama3-8B (batch size 1, seq len 8192, 100 steps, torch.compile, FSDP2, per-op selective activation checkpointing). All numbers are from torchao [PR #2736](https://github.com/pytorch/ao/pull/2736). Speedups are expected to increase with larger GEMM dimensions (bigger models), as the torchao README notes.
-
-![Figure 7: FP8 Training Throughput](images/fig-perf-throughput.png)
-
-*Figure 7: FP8 training throughput on 8×MI300X with Llama3-8B. Tensorwise FP8 delivers a 14.7% throughput gain over BF16, with peak memory nearly identical (~39 GB) across all configurations — the win comes from faster FP8 matrix cores, not memory savings.*
-
-The kernel-level optimizations described above compound on top of these numbers. On DeepSeek-V3 671B shapes, the forward-pass kernel fusion alone recovered 89% of the quantization overhead (5,996 → 7,027 tok/s vs 7,156 BF16 baseline on 8xMI325X), and the colwise scales optimization delivered a 6.2× speedup per MoE layer.
 
 ## Summary, and Next Steps
 
@@ -105,7 +100,7 @@ This work was a collaboration between AMD and Meta/PyTorch engineers. All contri
 
 ## Disclaimers
 
-Third-party content is licensed to you directly by the third party that owns the content and is not licensed to you by AMD. ALL LINKED THIRD-PARTY CONTENT IS PROVIDED “AS IS” WITHOUT A WARRANTY OF ANY KIND. USE OF SUCH THIRD-PARTY CONTENT IS DONE AT YOUR SOLE DISCRETION AND UNDER NO CIRCUMSTANCES WILL AMD BE LIABLE TO YOU FOR ANY THIRD-PARTY CONTENT. YOU ASSUME ALL RISK AND ARE SOLELY RESPONSIBLE FOR ANY DAMAGES THAT MAY ARISE FROM YOUR USE OF THIRD-PARTY CONTENT.
+Third-party content is licensed to you directly by the third party that owns the content and is not licensed to you by AMD. ALL LINKED THIRD-PARTY CONTENT IS PROVIDED "AS IS" WITHOUT A WARRANTY OF ANY KIND. USE OF SUCH THIRD-PARTY CONTENT IS DONE AT YOUR SOLE DISCRETION AND UNDER NO CIRCUMSTANCES WILL AMD BE LIABLE TO YOU FOR ANY THIRD-PARTY CONTENT. YOU ASSUME ALL RISK AND ARE SOLELY RESPONSIBLE FOR ANY DAMAGES THAT MAY ARISE FROM YOUR USE OF THIRD-PARTY CONTENT.
 
 ---
 *© 2026 Advanced Micro Devices, Inc.*
