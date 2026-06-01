@@ -4,7 +4,7 @@
 
 ---
 
-At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for TorchTitan. That milestone proved that large-scale LLM training can achieve strong scaling on ROCm when the full software stack is optimized end-to-end.
+At the PyTorch Conference 2026, we demonstrated linear scaling beyond 1,000 GPUs on AMD Instinct clusters using Primus-Turbo, AMD's internal optimization library for training frameworks like TorchTitan and Megatron. That milestone proved that large-scale LLM training can achieve strong scaling on ROCm when the full software stack is optimized end-to-end.
 
 But an internal library was not the end goal, and our focus has shifted to ensuring our optimizations work for everyone. We have been upstreaming AMD optimizations so that TorchTitan can natively support AMD GPUs with competitive FP8 performance out of the box.
 
