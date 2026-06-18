@@ -27,7 +27,7 @@ AMD Instinct GPUs implement a variant of the FP8 formats called FNUZ (Finite, No
 
 ![Figure 2: TorchTitan FP8 Training Software Stack on ROCm](images/fig1-software-stack.png)
 
-*Figure 2: The TorchTitan FP8 training software stack on ROCm. AMD's upstream contributions span all layers — from Triton kernel optimizations and FP8 dtype support in TorchAO to MFU fixes in TorchTitan.*
+*Figure 2: The TorchTitan FP8 training software stack on ROCm. AMD's upstream contributions span TorchAO (FP8 dtype support, Triton kernel optimizations) and TorchTitan (MFU fixes, loss baselines, scaling recipes).*
 
 The torchao library initially hardcoded NVIDIA's e4m3fn dtype for all FP8 operations — on AMD hardware, this silently produced wrong results as scales were computed against a max of 448 when the hardware's actual max is 240. We fixed this in stages: torchao [#1142](https://github.com/pytorch/ao/pull/1142)/[#1150](https://github.com/pytorch/ao/pull/1150) added GPU auto-detection for FNUZ types, followed by hardware capability checks ([#1314](https://github.com/pytorch/ao/pull/1314)), OCP FP8 support ([#1677](https://github.com/pytorch/ao/pull/1677)), and correct quant dtype selection on AMD ([#2225](https://github.com/pytorch/ao/pull/2225)). On the TorchTitan side, we added correct AMD MI300X FLOPS values for MFU reporting ([#920](https://github.com/pytorch/torchtitan/pull/920)) and platform-specific loss baselines for FNUZ numerics ([#2156](https://github.com/pytorch/torchtitan/pull/2156)/[#2157](https://github.com/pytorch/torchtitan/pull/2157)).
 
