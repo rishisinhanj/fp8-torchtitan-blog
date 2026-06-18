@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FP8 Training Throughput on 8xMI300X GPU — Llama3-8B</title>
+<title>Rowwise FP8 Training Throughput on 8xMI300X — Llama3-8B</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   body {
@@ -31,23 +31,22 @@
   const svg = document.getElementById('chart');
   const NS = 'http://www.w3.org/2000/svg';
 
-  // Data — sorted ascending by value for visual progression
+  // Data — 3 bars: BF16 baseline, rowwise, rowwise + gw_hp
   const bars = [
-    { label: 'BF16\nBaseline',                         value: 5377, speedup: null,     color: '#94a3b8' },
-    { label: 'Rowwise FP8\n(bf16 all-gather)',          value: 5891, speedup: '+9.6%',  color: '#60a5fa' },
-    { label: 'Rowwise FP8 + GW\nhigh-precision',        value: 6100, speedup: '+13.4%', color: '#3b82f6' },
-    { label: 'Tensorwise FP8\n(float8 all-gather)',     value: 6166, speedup: '+14.7%', color: '#1d4ed8' }
+    { label: 'BF16\nBaseline',                                    value: 5377, speedup: null,     color: '#94a3b8' },
+    { label: 'Rowwise FP8\n(bf16 all-gather)',                     value: 5891, speedup: '+9.6%',  color: '#60a5fa' },
+    { label: 'Rowwise FP8\n(gradient weight\nhigh precision)',     value: 6100, speedup: '+13.4%', color: '#1d4ed8' }
   ];
 
   // Layout
-  const chartLeft = 100, chartRight = 860, chartTop = 100, chartBottom = 390;
+  const chartLeft = 100, chartRight = 860, chartTop = 100, chartBottom = 380;
   const chartWidth = chartRight - chartLeft;
   const chartHeight = chartBottom - chartTop;
   const yMax = 7000;
   const yScale = chartHeight / yMax;
   const barCount = bars.length;
   const groupWidth = chartWidth / barCount;
-  const barWidth = groupWidth * 0.55;
+  const barWidth = groupWidth * 0.50;
   const barGap = (groupWidth - barWidth) / 2;
 
   function el(tag, attrs, textContent) {
@@ -64,7 +63,7 @@
   svg.appendChild(el('text', {
     x: 450, y: 32, 'text-anchor': 'middle',
     'font-size': '18', 'font-weight': '700', fill: '#1a1a1a'
-  }, 'FP8 Training Throughput on 8xMI300X GPU'));
+  }, 'Rowwise FP8 Training Throughput on 8xMI300X'));
 
   // Subtitle
   svg.appendChild(el('text', {
@@ -130,7 +129,7 @@
 
     // Speedup badge — above value label
     if (bar.speedup) {
-      const badgeW = 58, badgeH = 22;
+      const badgeW = 62, badgeH = 22;
       const badgeX = x + barWidth / 2 - badgeW / 2;
       const badgeY = y - 52;
 
@@ -157,7 +156,7 @@
 
   // Memory annotation
   svg.appendChild(el('text', {
-    x: 450, y: chartBottom + 62, 'text-anchor': 'middle',
+    x: 450, y: chartBottom + 78, 'text-anchor': 'middle',
     'font-size': '12', 'font-weight': '500', fill: '#64748b'
   }, 'Peak memory ~39 GB across all configurations — speedups come from faster FP8 matrix cores, not memory savings'));
 
