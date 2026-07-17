@@ -65,11 +65,9 @@ Each step is a separate kernel launch, and materializes an intermediate tensor t
 
 **Forward pass fusion.** The same multi-kernel pattern applied to the forward path. Quantizing expert weights launched five generic kernels per call — and with 24 calls per step, this added ~67 ms/step of overhead. We replaced the entire chain with a single fused Triton kernel ([#4311](https://github.com/pytorch/ao/pull/4311)) that parallelizes across both experts and output-dimension blocks. Collapsing five launches into one also cleared the execution queue for surrounding GEMMs to issue earlier. On 8×MI325X with DeepSeek-V3 671B: 5,996 → 7,027 tok/s vs 7,156 BF16 baseline — **recovering 89% of the quantization overhead**.
 
-| Upstream FP8 (V2) | Fused FP8 (V4) |
-|---|---|
-| ![V2 upstream](images/fp8_upstream_perfetto.png) | ![V4 fused](images/fp8_optimized_perfetto.png) |
+![Figure 5: Perfetto Trace Comparison](images/fig5-perfetto-comparison.png)
 
-*Figure 5: Perfetto trace comparison (8×MI325X, DeepSeek-V3 671B). Left: FP8 (before forward optimization) showing the 5-kernel eager chain repeated across experts. Right: fused FP8 (after optimization) showing a single `triton_fp8_colwise_3d_scale_and_cast` kernel replacing the chain. Performance in forward goes from ~19 ms to ~7 ms*
+*Figure 5: Perfetto trace comparison (8×MI325X, DeepSeek-V3 671B). Top: FP8 upstream showing the 5-kernel eager chain repeated across experts (~19 ms forward). Bottom: fused FP8 showing a single `triton_fp8_colwise_3d_scale_and_cast` kernel replacing the chain (~7 ms forward).*
 
 ![Figure 6: Per-category GPU Time Breakdown](images/fig6-gpu-breakdown.png)
 
